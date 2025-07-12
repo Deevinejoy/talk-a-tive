@@ -16,16 +16,27 @@ interface User {
   photoURL?: string;
 }
 
+interface Notification {
+  chatId: string;
+  senderName: string;
+  content: string;
+  chatName: string;
+  time: string;
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { chats, messagesByChat, loading: firestoreLoading, getChats, sendMessage, createChat, findChatWithParticipants, createGroupChat } = useFirestore();
+  const { chats, messagesByChat, loading: firestoreLoading, getChats, sendMessage, createChat, findChatWithParticipants, createGroupChat, deleteMessage, editMessage, editGroupName } = useFirestore();
   
   const [users, setUsers] = useState<User[]>([]);
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [currentUserName, setCurrentUserName] = useState<string>('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [lastNotifiedMessageIds, setLastNotifiedMessageIds] = useState<{ [chatId: string]: string }>({});
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -67,6 +78,47 @@ export default function ChatPage() {
       return () => unsubscribe();
     }
   }, [user, getChats]);
+
+  // Notification effect
+  useEffect(() => {
+    if (!user) return;
+    Object.entries(messagesByChat).forEach(([chatId, messages]) => {
+      if (messages.length > 0) {
+        const lastMessage = messages[messages.length - 1];
+        const lastNotifiedId = lastNotifiedMessageIds[chatId];
+        if (
+          lastMessage.id !== lastNotifiedId &&
+          lastMessage.senderId !== user.uid &&
+          chatId !== selectedChat
+        ) {
+          const chat = chats.find(c => c.id === chatId);
+          const chatName = chat?.name ||
+            users.find(u =>
+              chat?.participants.includes(u.id) &&
+              chat?.participants.includes(user.uid) &&
+              u.id !== user.uid
+            )?.name ||
+            'Chat';
+          const newNotification: Notification = {
+            chatId,
+            senderName: lastMessage.senderName,
+            content: lastMessage.content,
+            chatName,
+            time: new Date().toLocaleTimeString(),
+          };
+          setNotifications(prev => [newNotification, ...prev.slice(0, 9)]);
+          setLastNotifiedMessageIds(prev => ({ ...prev, [chatId]: lastMessage.id }));
+        }
+      }
+    });
+  }, [messagesByChat, user, selectedChat, chats, users, lastNotifiedMessageIds]);
+
+  // Clear notifications when a chat is selected
+  useEffect(() => {
+    if (selectedChat) {
+      setNotifications(prev => prev.filter(notif => notif.chatId !== selectedChat));
+    }
+  }, [selectedChat]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,6 +192,46 @@ export default function ChatPage() {
     setIsMobileSidebarOpen((prev) => !prev);
   };
 
+  const handleDeleteMessage = async (messageId: string) => {
+    if (selectedChat) {
+      try {
+        await deleteMessage(selectedChat, messageId);
+      } catch (error) {
+        console.error('Failed to delete message:', error);
+      }
+    }
+  };
+
+  const handleEditMessage = async (messageId: string, newContent: string) => {
+    if (selectedChat) {
+      try {
+        await editMessage(selectedChat, messageId, newContent);
+      } catch (error) {
+        console.error('Failed to edit message:', error);
+      }
+    }
+  };
+
+  const handleToggleNotifications = () => {
+    setShowNotifications(prev => !prev);
+  };
+
+  const handleNotificationClick = (chatId: string) => {
+    setSelectedChat(chatId);
+    setShowNotifications(false);
+    setNotifications(prev => prev.filter(notif => notif.chatId !== chatId));
+  };
+
+  const handleEditGroupName = async (newName: string) => {
+    if (selectedChat) {
+      try {
+        await editGroupName(selectedChat, newName);
+      } catch (error) {
+        console.error('Failed to edit group name:', error);
+      }
+    }
+  };
+
   const messages = selectedChat && messagesByChat[selectedChat] ? messagesByChat[selectedChat] : [];
 
   if (authLoading || firestoreLoading) {
@@ -157,20 +249,28 @@ export default function ChatPage() {
         onCreateGroupChat={handleCreateGroupChat}
         isMobileSidebarOpen={isMobileSidebarOpen}
         onToggleMobileSidebar={handleToggleMobileSidebar}
+        onEditGroupName={handleEditGroupName}
       />
-      <ChatArea
-        messages={messages}
-        selectedChat={selectedChat}
-        chats={chats}
-        users={users}
-        user={user}
-        newMessage={newMessage}
-        onSendMessage={handleSendMessage}
-        onMessageChange={setNewMessage}
-        onToggleMobileSidebar={handleToggleMobileSidebar}
-        // Debug log for messages being rendered
-        debugLog={(() => { console.log('[ChatArea] Rendering messages:', messages, 'selectedChat:', selectedChat); return null; })()}
-      />
+      <div className="flex-1 flex flex-col relative">
+        <ChatArea
+          messages={messages}
+          selectedChat={selectedChat}
+          chats={chats}
+          users={users}
+          user={user}
+          newMessage={newMessage}
+          onSendMessage={handleSendMessage}
+          onMessageChange={setNewMessage}
+          onToggleMobileSidebar={handleToggleMobileSidebar}
+          debugLog={(() => { console.log('[ChatArea] Rendering messages:', messages, 'selectedChat:', selectedChat); return null; })()}
+          onDeleteMessage={handleDeleteMessage}
+          onEditMessage={handleEditMessage}
+          notifications={notifications}
+          showNotifications={showNotifications}
+          onToggleNotifications={handleToggleNotifications}
+          onNotificationClick={handleNotificationClick}
+        />
+      </div>
     </div>
   );
 } 

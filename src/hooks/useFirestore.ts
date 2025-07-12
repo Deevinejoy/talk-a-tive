@@ -14,6 +14,7 @@ import {
   getDocs,
   Firestore,
   Timestamp,
+  deleteDoc,
 } from 'firebase/firestore';
 import { db as importedDb } from '@/lib/firebase';
 const db: Firestore = importedDb;
@@ -223,6 +224,42 @@ export const useFirestore = () => {
     }
   }, []);
 
+  const deleteMessage = useCallback(async (chatId: string, messageId: string) => {
+    try {
+      await deleteDoc(doc(db, 'chats', chatId, 'messages', messageId));
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      setError('Failed to delete message');
+      throw error;
+    }
+  }, []);
+
+  const editMessage = useCallback(async (chatId: string, messageId: string, newContent: string) => {
+    try {
+      await updateDoc(doc(db, 'chats', chatId, 'messages', messageId), {
+        content: newContent,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error editing message:', error);
+      setError('Failed to edit message');
+      throw error;
+    }
+  }, []);
+
+  const editGroupName = useCallback(async (chatId: string, newName: string) => {
+    try {
+      await updateDoc(doc(db, 'chats', chatId), {
+        name: newName,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error editing group name:', error);
+      setError('Failed to edit group name');
+      throw error;
+    }
+  }, []);
+
   // Clean up all listeners on unmount
   useEffect(() => () => { Object.values(messageListeners.current).forEach(unsub => unsub()); }, []);
 
@@ -236,7 +273,7 @@ export const useFirestore = () => {
     const snapshot = await getDocs(q);
     for (const docSnap of snapshot.docs) {
       const chatData = docSnap.data() as Chat;
-      return { ...chatData, id: docSnap.id };
+        return { ...chatData, id: docSnap.id };
     }
     return null;
   }, []);
@@ -254,5 +291,8 @@ export const useFirestore = () => {
     addUserToGroup,
     removeUserFromGroup,
     findChatWithParticipants,
+    deleteMessage,
+    editMessage,
+    editGroupName,
   };
 }; 

@@ -41,6 +41,7 @@ interface SidebarProps {
   onCreateGroupChat: (name: string, participants: string[]) => Promise<string>;
   isMobileSidebarOpen: boolean;
   onToggleMobileSidebar: () => void;
+  onEditGroupName?: (chatId: string, newName: string) => void;
 }
 
 export default function Sidebar({ 
@@ -51,11 +52,14 @@ export default function Sidebar({
   onStartChat, 
   onCreateGroupChat,
   isMobileSidebarOpen,
-  onToggleMobileSidebar
+  onToggleMobileSidebar,
+  onEditGroupName
 }: SidebarProps) {
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [groupNameValue, setGroupNameValue] = useState('');
 
   const handleCreateGroup = async (name: string, selectedUserIds: string[]) => {
     try {
@@ -112,20 +116,26 @@ export default function Sidebar({
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setShowCreateGroupModal(true)}
-              className="p-2 text-blue-300 hover:bg-blue-400/20 rounded-full transition shadow-md hover:shadow-blue-400"
+              className="relative p-2 text-white hover:bg-blue-400/20 rounded-full transition shadow-md hover:shadow-blue-400 group"
             >
-              <UserGroupIcon className="w-5 h-5" />
+              <UserGroupIcon className="w-6 h-6" />
+              <span className="absolute left-1/2 -translate-x-1/2 top-10 bg-blue-900 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 whitespace-nowrap shadow-lg">
+                Create Group
+              </span>
             </button>
             <button 
               onClick={() => setShowSearchModal(true)}
-              className="p-2 text-blue-300 hover:bg-blue-400/20 rounded-full transition shadow-md hover:shadow-blue-400"
+              className="relative p-2 text-white hover:bg-blue-400/20 rounded-full transition shadow-md hover:shadow-blue-400 group"
             >
-              <MagnifyingGlassIcon className="w-5 h-5" />
+              <MagnifyingGlassIcon className="w-6 h-6" />
+              <span className="absolute left-1/2 -translate-x-1/2 top-10 bg-blue-900 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 whitespace-nowrap shadow-lg">
+                Search Users
+              </span>
             </button>
             {/* Mobile close button */}
             <button
               onClick={onToggleMobileSidebar}
-              className="lg:hidden p-2 text-blue-300 hover:bg-blue-400/20 rounded-full transition"
+              className="lg:hidden p-2 text-white hover:bg-blue-400/20 rounded-full transition"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -139,7 +149,7 @@ export default function Sidebar({
           <div className="overflow-y-auto h-[calc(100vh-5rem)]">
             {/* Individual Users */}
             <div className="mb-4">
-              <h3 className="text-sm font-semibold text-blue-200 px-4 mb-2">Individual Chats</h3>
+              <h3 className="text-sm font-semibold text-blue-200 px-4 mb-2 mt-4">Individual Chats</h3>
               {users.map((userItem) => {
                 // Find the selected chat object
                 const selectedChatObj = chats.find(chat => chat.id === selectedChat);
@@ -189,7 +199,6 @@ export default function Sidebar({
                 .filter(chat => chat.isGroup && chat.participants.includes(user?.uid))
                 .map((groupChat) => {
                   const isActive = groupChat.id === selectedChat;
-                  
                   return (
                     <div
                       key={groupChat.id}
@@ -201,8 +210,42 @@ export default function Sidebar({
                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center shadow-lg">
                         <UserGroupIcon className="w-5 h-5 text-white" />
                       </div>
-                      <div>
-                        <h3 className="font-semibold text-white drop-shadow">{groupChat.name || 'Group Chat'}</h3>
+                      <div className="flex-1">
+                        {editingGroupId === groupChat.id ? (
+                          <form
+                            onSubmit={e => {
+                              e.preventDefault();
+                              if (onEditGroupName && groupNameValue.trim()) {
+                                onEditGroupName(groupChat.id, groupNameValue.trim());
+                                setEditingGroupId(null);
+                              }
+                            }}
+                            className="flex gap-2 items-center"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <input
+                              type="text"
+                              value={groupNameValue}
+                              onChange={e => setGroupNameValue(e.target.value)}
+                              className="p-1 rounded border text-white"
+                              autoFocus
+                            />
+                            <button type="submit" className="px-2 py-1 bg-blue-500 text-white rounded">Save</button>
+                            <button type="button" onClick={e => { e.stopPropagation(); setEditingGroupId(null); }} className="px-2 py-1 bg-gray-400 text-white rounded">Cancel</button>
+                          </form>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-white drop-shadow">{groupChat.name || 'Group Chat'}</h3>
+                            {onEditGroupName && (
+                              <button
+                                onClick={e => { e.stopPropagation(); setEditingGroupId(groupChat.id); setGroupNameValue(groupChat.name || 'Group Chat'); }}
+                                className="text-xs text-blue-200 hover:text-blue-400 underline"
+                              >
+                                Edit
+                              </button>
+                            )}
+                          </div>
+                        )}
                         <p className="text-xs text-blue-200">{groupChat.participants.length} members</p>
                       </div>
                     </div>
