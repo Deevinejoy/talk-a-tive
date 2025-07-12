@@ -16,26 +16,14 @@ interface User {
   photoURL?: string;
 }
 
-interface Notification {
-  chatId: string;
-  senderName: string;
-  content: string;
-  chatName: string;
-  time: string;
-}
-
 export default function ChatPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { chats, messagesByChat, loading: firestoreLoading, getChats, getMessages, sendMessage, createChat, findChatWithParticipants, createGroupChat } = useFirestore();
+  const { chats, messagesByChat, loading: firestoreLoading, getChats, sendMessage, createChat, findChatWithParticipants, createGroupChat } = useFirestore();
   
   const [users, setUsers] = useState<User[]>([]);
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState('');
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [lastNotifiedMessageIds, setLastNotifiedMessageIds] = useState<{ [chatId: string]: string }>({});
-  const [openedChats, setOpenedChats] = useState<Set<string>>(new Set());
   const [currentUserName, setCurrentUserName] = useState<string>('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
@@ -80,65 +68,6 @@ export default function ChatPage() {
     }
   }, [user, getChats]);
 
-  useEffect(() => {
-    if (selectedChat && !openedChats.has(selectedChat)) {
-      getMessages(selectedChat);
-      setOpenedChats(prev => new Set(prev).add(selectedChat));
-    }
-  }, [selectedChat, getMessages, openedChats]);
-
-  // Enhanced notification system for all chats
-  useEffect(() => {
-    if (!user) return;
-
-    // Check all chats for new messages
-    Object.entries(messagesByChat).forEach(([chatId, messages]) => {
-      if (messages.length > 0) {
-        const lastMessage = messages[messages.length - 1];
-        const lastNotifiedId = lastNotifiedMessageIds[chatId];
-        
-        // Create notification if:
-        // 1. Message is new (not previously notified)
-        // 2. Message is from someone else
-        // 3. Chat is not currently selected (to avoid self-notifications)
-        if (
-          lastMessage.id !== lastNotifiedId &&
-          lastMessage.senderId !== user.uid &&
-          chatId !== selectedChat
-        ) {
-          // Get chat name
-          const chat = chats.find(c => c.id === chatId);
-          const chatName = chat?.name || 
-            users.find(u => 
-              chat?.participants.includes(u.id) && 
-              chat?.participants.includes(user.uid) && 
-              u.id !== user.uid
-            )?.name || 
-            'Chat';
-
-          // Create notification
-          const newNotification: Notification = {
-            chatId,
-            senderName: lastMessage.senderName,
-            content: lastMessage.content,
-            chatName,
-            time: new Date().toLocaleTimeString(),
-          };
-
-          setNotifications(prev => [newNotification, ...prev.slice(0, 9)]); // Keep max 10 notifications
-          setLastNotifiedMessageIds(prev => ({ ...prev, [chatId]: lastMessage.id }));
-        }
-      }
-    });
-  }, [messagesByChat, user, selectedChat, chats, users, lastNotifiedMessageIds]);
-
-  // Clear notifications when a chat is selected
-  useEffect(() => {
-    if (selectedChat) {
-      setNotifications(prev => prev.filter(notif => notif.chatId !== selectedChat));
-    }
-  }, [selectedChat]);
-
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newMessage.trim() && selectedChat && user) {
@@ -148,6 +77,7 @@ export default function ChatPage() {
       }
       try {
         console.log('[handleSendMessage] Using senderName:', senderName);
+        console.log('[handleSendMessage] Sending to chatId:', selectedChat, 'message:', newMessage);
         await sendMessage(selectedChat, {
           content: newMessage,
           senderId: user.uid,
@@ -167,17 +97,22 @@ export default function ChatPage() {
         const existingGroupChat = chats.find(chat => chat.id === userId && chat.isGroup);
         if (existingGroupChat) {
           setSelectedChat(userId);
+          console.log('[handleStartChat] Selected group chatId:', userId);
           return;
         }
 
+        // Always sort participants for deterministic chatKey
+        const participants = [user.uid, userId].sort();
         // Try to find an existing chat
-        const existingChat = await findChatWithParticipants([user.uid, userId]);
+        const existingChat = await findChatWithParticipants(participants);
         console.log('[handleStartChat] existingChat:', existingChat, 'selectedChat:', selectedChat);
         if (existingChat) {
           setSelectedChat(existingChat.id);
+          console.log('[handleStartChat] Selected existing chatId:', existingChat.id);
         } else {
-          const chatId = await createChat([user.uid, userId]);
+          const chatId = await createChat(participants);
           setSelectedChat(chatId);
+          console.log('[handleStartChat] Created and selected new chatId:', chatId);
         }
       } catch (error) {
         console.error('Error creating or finding chat:', error);
@@ -205,17 +140,6 @@ export default function ChatPage() {
     setIsMobileSidebarOpen((prev) => !prev);
   };
 
-  const handleToggleNotifications = () => {
-    setShowNotifications(prev => !prev);
-  };
-
-  const handleNotificationClick = (chatId: string) => {
-    setSelectedChat(chatId);
-    setShowNotifications(false);
-    // Clear notifications for this chat
-    setNotifications(prev => prev.filter(notif => notif.chatId !== chatId));
-  };
-
   const messages = selectedChat && messagesByChat[selectedChat] ? messagesByChat[selectedChat] : [];
 
   if (authLoading || firestoreLoading) {
@@ -241,13 +165,11 @@ export default function ChatPage() {
         users={users}
         user={user}
         newMessage={newMessage}
-        notifications={notifications}
-        showNotifications={showNotifications}
         onSendMessage={handleSendMessage}
         onMessageChange={setNewMessage}
-        onToggleNotifications={handleToggleNotifications}
-        onNotificationClick={handleNotificationClick}
         onToggleMobileSidebar={handleToggleMobileSidebar}
+        // Debug log for messages being rendered
+        debugLog={(() => { console.log('[ChatArea] Rendering messages:', messages, 'selectedChat:', selectedChat); return null; })()}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   collection,
   query,
@@ -34,6 +34,7 @@ export interface Chat {
   isGroup?: boolean;
   name?: string;
   ownerId?: string;
+  chatKey?: string;
 }
 
 export const useFirestore = () => {
@@ -44,7 +45,7 @@ export const useFirestore = () => {
   const messageListeners = useRef<{ [chatId: string]: () => void }>({});
 
   // Get all chats for current user
-  const getChats = (userId: string) => {
+  const getChats = useCallback((userId: string) => {
     try {
       setError(null);
       const q = query(
@@ -91,10 +92,10 @@ export const useFirestore = () => {
       setLoading(false);
       return () => {};
     }
-  };
+  }, []);
 
   // Refactored getMessages
-  const getMessages = (chatId: string) => {
+  const getMessages = useCallback((chatId: string) => {
     console.log('[getMessages] Setting up listener for chat', chatId);
     // Unsubscribe previous listener for this chat if exists
     if (messageListeners.current[chatId]) {
@@ -129,14 +130,17 @@ export const useFirestore = () => {
     );
     messageListeners.current[chatId] = unsubscribe;
     return unsubscribe;
-  };
+  }, []);
 
   // Create a new chat
-  const createChat = async (participants: string[]) => {
+  const createChat = useCallback(async (participants: string[]) => {
+    const sortedParticipants = [...participants].sort();
+    const chatKey = sortedParticipants.join('_');
     try {
       setError(null);
       const chatRef = await addDoc(collection(db, 'chats'), {
-        participants,
+        participants: sortedParticipants,
+        chatKey,
         createdAt: serverTimestamp(),
       });
       return chatRef.id;
@@ -145,10 +149,10 @@ export const useFirestore = () => {
       setError('Failed to create chat');
       throw error;
     }
-  };
+  }, []);
 
   // Send a message
-  const sendMessage = async (chatId: string, message: Omit<Message, 'id' | 'createdAt'>) => {
+  const sendMessage = useCallback(async (chatId: string, message: Omit<Message, 'id' | 'createdAt'>) => {
     try {
       setError(null);
       console.log('[sendMessage] Sending message to chat', chatId, message);
@@ -170,10 +174,10 @@ export const useFirestore = () => {
       setError('Failed to send message');
       throw error;
     }
-  };
+  }, []);
 
   // Create a group chat
-  const createGroupChat = async (name: string, participants: string[], ownerId: string) => {
+  const createGroupChat = useCallback(async (name: string, participants: string[], ownerId: string) => {
     try {
       setError(null);
       const chatRef = await addDoc(collection(db, 'chats'), {
@@ -189,10 +193,10 @@ export const useFirestore = () => {
       setError('Failed to create group chat');
       throw error;
     }
-  };
+  }, []);
 
   // Add user to group chat
-  const addUserToGroup = async (chatId: string, userId: string) => {
+  const addUserToGroup = useCallback(async (chatId: string, userId: string) => {
     try {
       setError(null);
       await updateDoc(doc(db, 'chats', chatId), {
@@ -203,10 +207,10 @@ export const useFirestore = () => {
       setError('Failed to add user to group');
       throw error;
     }
-  };
+  }, []);
 
   // Remove user from group chat
-  const removeUserFromGroup = async (chatId: string, userId: string) => {
+  const removeUserFromGroup = useCallback(async (chatId: string, userId: string) => {
     try {
       setError(null);
       await updateDoc(doc(db, 'chats', chatId), {
@@ -217,34 +221,25 @@ export const useFirestore = () => {
       setError('Failed to remove user from group');
       throw error;
     }
-  };
+  }, []);
 
   // Clean up all listeners on unmount
   useEffect(() => () => { Object.values(messageListeners.current).forEach(unsub => unsub()); }, []);
 
-  const findChatWithParticipants = async (participants: string[]): Promise<Chat | null> => {
-    // Sort participants to ensure consistent order
+  const findChatWithParticipants = useCallback(async (participants: string[]): Promise<Chat | null> => {
     const sortedParticipants = [...participants].sort();
+    const chatKey = sortedParticipants.join('_');
     const q = query(
       collection(db, 'chats'),
-      where('participants', 'array-contains', participants[0]) // get all chats for the first participant
+      where('chatKey', '==', chatKey)
     );
     const snapshot = await getDocs(q);
     for (const docSnap of snapshot.docs) {
       const chatData = docSnap.data() as Chat;
-      const chatParticipantsSorted = [...chatData.participants].sort();
-      console.log('[findChatWithParticipants] Checking chat:', docSnap.id, 'participants:', chatData.participants, 'sorted:', chatParticipantsSorted, 'vs', sortedParticipants);
-      if (
-        chatData.participants.length === sortedParticipants.length &&
-        chatParticipantsSorted.every((id, idx) => id === sortedParticipants[idx])
-      ) {
-        console.log('[findChatWithParticipants] Match found:', docSnap.id);
-        return { ...chatData, id: docSnap.id };
-      }
+      return { ...chatData, id: docSnap.id };
     }
-    console.log('[findChatWithParticipants] No match found for participants:', sortedParticipants);
     return null;
-  };
+  }, []);
 
   return {
     chats,
