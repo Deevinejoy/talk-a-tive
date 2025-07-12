@@ -7,7 +7,23 @@ import {
   User,
   updateProfile
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
+
+// Ensure user profile exists in Firestore
+async function ensureUserProfile(user: User) {
+  if (!user) return;
+  const userRef = doc(db, 'users', user.uid);
+  const userSnap = await getDoc(userRef);
+  if (!userSnap.exists()) {
+    await setDoc(userRef, {
+      name: user.displayName || '',
+      email: user.email,
+      photoURL: user.photoURL || '',
+      createdAt: new Date(),
+    });
+  }
+}
 
 export const useAuth = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -17,6 +33,9 @@ export const useAuth = () => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
+      if (user) {
+        ensureUserProfile(user);
+      }
     });
 
     return () => unsubscribe();
@@ -25,6 +44,7 @@ export const useAuth = () => {
   const login = async (email: string, password: string) => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      await ensureUserProfile(userCredential.user);
       return userCredential.user;
     } catch (error) {
       throw error;
@@ -38,6 +58,7 @@ export const useAuth = () => {
       await updateProfile(userCredential.user, {
         displayName: name
       });
+      await ensureUserProfile(userCredential.user);
       return userCredential.user;
     } catch (error) {
       throw error;
